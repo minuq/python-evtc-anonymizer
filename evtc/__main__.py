@@ -1,6 +1,7 @@
 import argparse
 import struct
 import uuid
+import zipfile
 from collections import namedtuple
 from pathlib import Path
 
@@ -15,7 +16,7 @@ combat_struct = struct.Struct(combat_struct_format)
 
 def ints_from_guid(guid: uuid.UUID):
     cg = guid.bytes_le
-    dst_agent = int.from_bytes(cg[0:8], "little",)
+    dst_agent = int.from_bytes(cg[0:8], "little")
     value = int.from_bytes(cg[8:12], "little")
     buff_dmg = int.from_bytes(cg[12:16], "little")
     return dst_agent, value, buff_dmg
@@ -99,11 +100,26 @@ class Agent:
         )
 
 
-class Anon:
-    def __init__(self, keep_pov: bool, evtc_file: str):
-        self.evtc_file = Path(evtc_file)
+def read_zip(evtc_file: Path):
+    with zipfile.ZipFile(evtc_file) as zf:
+        bt = zf.read(evtc_file.stem)
 
-        self.evtc_data = self.evtc_file.read_bytes()
+    return bt
+
+
+class Anon:
+    def __init__(
+        self, keep_pov: bool, evtc_file: str, keep_guilds: bool, compressed_output: bool
+    ):
+        self.evtc_file = Path(evtc_file)
+        self.replace_guilds = keep_guilds
+        self.compressed_output = compressed_output
+
+        if zipfile.is_zipfile(self.evtc_file):
+            self.evtc_data = read_zip(self.evtc_file)
+        else:
+            self.evtc_data = self.evtc_file.read_bytes()
+
         self.new_data = bytearray(self.evtc_data)
 
         self.header = Header._make(header_struct.unpack_from(self.evtc_data))
@@ -114,7 +130,6 @@ class Anon:
 
         self.pov = None
         self.keep_pov = keep_pov
-        self.replace_guilds = True
 
         self.replace_guilds_and_find_pov()
         self.rename_agents()
@@ -157,7 +172,11 @@ class Anon:
 
         player_counter = 1
         for agent_id in range(self.header.agent_count):
-            agent = Agent(agent_struct.unpack_from(self.evtc_data[pointer:]))
+            agent = Agent(
+                agent_struct.unpack_from(
+                    self.evtc_data[pointer : pointer + agent_struct.size]
+                )
+            )
             if agent.is_player:
                 if self.keep_pov and agent.address == self.pov:
                     print(f"Skipping PoV: {agent.account_name}")
@@ -180,20 +199,43 @@ class Anon:
             pointer += agent_struct.size
 
     def write(self):
-        Path(self.evtc_file.stem + "-anonymized.evtc").write_bytes(self.new_data)
+        print("Writing file, this might take a while.")
+        path = self.evtc_file.parent.absolute()
+        name = self.evtc_file.stem + "-anonymized"
+        if self.compressed_output:
+            with zipfile.ZipFile(
+                path / f"{name}.zevtc", "w", compression=zipfile.ZIP_BZIP2
+            ) as zf:
+                zf.writestr(name, self.new_data)
+
+        else:
+            (path / f"{name}.evtc").write_bytes(self.new_data)
 
 
 def evtc_path(path: str):
     p = Path(path)
-    if p.exists() and p.suffix == ".evtc":
+    if p.exists() and p.suffix in [".evtc", ".zevtc", ".evtc.zip"]:
         return p
     raise argparse.ArgumentError(f"File {p.absolute()} does not exist.")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("evtc")
-    parser.add_argument("evtc_file", help="Path to a .evtc file", type=evtc_path)
+    parser.add_argument(
+        "evtc_file", metavar="evtc-file", help="Path to a .evtc file", type=evtc_path
+    )
     parser.add_argument("--pov", help="Keep PoV (default: false)", action="store_true")
+    parser.add_argument(
+        "--uncompressed", "-U", help="Don't compress output file", action="store_false"
+    )
+    parser.add_argument(
+        "--keep-guilds", "-G", help="Don't replace guild names", action="store_false"
+    )
 
     args = parser.parse_args()
-    Anon(keep_pov=args.pov, evtc_file=args.evtc_file)
+    Anon(
+        keep_pov=args.pov,
+        evtc_file=args.evtc_file,
+        keep_guilds=args.keep_guilds,
+        compressed_output=args.uncompressed,
+    )

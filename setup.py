@@ -2,7 +2,7 @@ import setuptools
 
 setuptools.setup(
     name="evtc",
-    version="0.0.1",
+    version="0.0.2",
     author="Yannick Linke",
     author_email="invisi@0x0f.net",
     description="A simple script to replace names inside arcdps's combat logs",
