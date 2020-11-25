@@ -1,6 +1,6 @@
 # evtc-anonymizer
 A simple and stupid script that replaces character and account names in 
-uncompressed .evtc and compressed .zevtc files, the guild us also replaced with [ArenaNet] by default.
+uncompressed .evtc and compressed .zevtc files, the guild is also replaced with [ArenaNet] by default.
 
 ## Installation
 Simply clone the repo and run locally or install it with pip.  
